@@ -1,0 +1,17 @@
+# Environment files
+**/.env
+**/.env.*
+!**/.env.example
+
+# Node build artifacts
+**/node_modules/
+**/dist/
+**/.vite/
+**/*.tsbuildinfo
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+
+# Local IDE settings
+.cursor/settings.json
