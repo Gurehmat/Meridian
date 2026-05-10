@@ -1,6 +1,7 @@
-import type { Contradiction, GraphNode } from '../types'
+import type { Connection, Contradiction, GraphNode } from '../types'
 
 type RightPanelProps = {
+  connections: Connection[]
   contradictions: Contradiction[]
   node: GraphNode
   onClose: () => void
@@ -34,10 +35,38 @@ function WarningIcon() {
   )
 }
 
-export function RightPanel({ contradictions, node, onClose }: RightPanelProps) {
+function LinkIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
+      <path
+        d="M6.5 9.5 9.5 6.5M6.25 5.25l.5-.5a3 3 0 0 1 4.24 4.24l-.5.5M9.75 10.75l-.5.5a3 3 0 1 1-4.24-4.24l.5-.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  )
+}
+
+function normalizeConceptName(name: string) {
+  return name.trim().toLowerCase()
+}
+
+function matchesNodeName(conceptName: string, nodeName: string) {
+  return normalizeConceptName(conceptName) === normalizeConceptName(nodeName)
+}
+
+export function RightPanel({ connections, contradictions, node, onClose }: RightPanelProps) {
   const relatedContradictions = contradictions.filter(
     (contradiction) =>
-      contradiction.concept_a === node.name || contradiction.concept_b === node.name,
+      matchesNodeName(contradiction.concept_a, node.name) ||
+      matchesNodeName(contradiction.concept_b, node.name),
+  )
+  const relatedConnections = connections.filter(
+    (connection) =>
+      matchesNodeName(connection.concept_a, node.name) ||
+      matchesNodeName(connection.concept_b, node.name),
   )
 
   return (
@@ -81,7 +110,7 @@ export function RightPanel({ contradictions, node, onClose }: RightPanelProps) {
           ) : null}
           {relatedContradictions.map((contradiction) => {
             const otherConcept =
-              contradiction.concept_a === node.name
+              matchesNodeName(contradiction.concept_a, node.name)
                 ? contradiction.concept_b
                 : contradiction.concept_a
 
@@ -95,6 +124,38 @@ export function RightPanel({ contradictions, node, onClose }: RightPanelProps) {
                 </h4>
                 <p className="mt-2 text-[13px] leading-5 text-[#57534e]">
                   {contradiction.explanation}
+                </p>
+              </article>
+            )
+          })}
+        </section>
+        <section className="mt-7">
+          <h3 className="flex items-center gap-2 text-[14px] font-bold leading-5 text-[#1c1917]">
+            <span className="text-[#059669]">
+              <LinkIcon />
+            </span>
+            Related Connections
+          </h3>
+          {relatedConnections.length === 0 ? (
+            <p className="mt-3 text-[13px] leading-5 text-[#a8a29e]">
+              No connections found for this node.
+            </p>
+          ) : null}
+          {relatedConnections.map((connection) => {
+            const otherConcept = matchesNodeName(connection.concept_a, node.name)
+              ? connection.concept_b
+              : connection.concept_a
+
+            return (
+              <article
+                className="mt-3 rounded-lg border border-[#e7e5e4] border-l-4 border-l-[#059669] bg-white p-4 shadow-sm"
+                key={connection.id ?? `${connection.concept_a}-${connection.concept_b}`}
+              >
+                <h4 className="text-[14px] font-bold leading-5 text-[#1c1917]">
+                  {otherConcept}
+                </h4>
+                <p className="mt-2 text-[13px] leading-5 text-[#57534e]">
+                  {connection.explanation}
                 </p>
               </article>
             )

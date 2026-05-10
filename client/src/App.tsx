@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { GraphArea } from './components/GraphArea'
 import { LeftSidebar } from './components/LeftSidebar'
+import type { SidebarTab } from './components/LeftSidebar'
 import { Navbar } from './components/Navbar'
 import { RightPanel } from './components/RightPanel'
 import {
@@ -33,6 +34,7 @@ function App() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isIngesting, setIsIngesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('insights')
 
   const applyWorkspaceData = useCallback(
     ({
@@ -112,8 +114,9 @@ function App() {
     setError(null)
 
     try {
-      await ingestText(content, userId)
+      const response = await ingestText(content, userId)
       await loadWorkspaceData()
+      return response
     } catch (ingestError) {
       setError(ingestError instanceof Error ? ingestError.message : 'Unable to ingest text')
       throw ingestError
@@ -127,10 +130,14 @@ function App() {
       <Navbar />
       <div className="flex h-[calc(100vh-56px)] min-h-0">
         <LeftSidebar
+          activeTab={sidebarTab}
           connections={connections}
           contradictions={contradictions}
+          graphNodes={graphData.nodes}
           isIngesting={isIngesting}
+          onActiveTabChange={setSidebarTab}
           onIngestText={handleIngestText}
+          onNodeSelect={setSelectedNode}
         />
         <GraphArea
           connections={connections}
@@ -138,10 +145,13 @@ function App() {
           graphData={graphData}
           isLoading={isLoading}
           isRefreshing={isRefreshing}
+          onOpenInput={() => setSidebarTab('input')}
           onNodeSelect={setSelectedNode}
+          selectedNodeId={selectedNode?.id}
         />
         {selectedNode ? (
           <RightPanel
+            connections={connections}
             contradictions={contradictions}
             node={selectedNode}
             onClose={() => setSelectedNode(null)}

@@ -1,14 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Connection, Contradiction } from '../types'
+import type { Connection, Contradiction, GraphNode, IngestResponse } from '../types'
 
-type SidebarTab = 'insights' | 'input'
+export type SidebarTab = 'insights' | 'input'
 
 type LeftSidebarProps = {
+  activeTab: SidebarTab
   connections: Connection[]
   contradictions: Contradiction[]
+  graphNodes: GraphNode[]
   isIngesting: boolean
-  onIngestText: (content: string) => Promise<void>
+  onActiveTabChange: (tab: SidebarTab) => void
+  onIngestText: (content: string) => Promise<IngestResponse>
+  onNodeSelect: (node: GraphNode) => void
 }
 
 function MeridianMark() {
@@ -95,41 +99,63 @@ function isSelfComparison(conceptA: string, conceptB: string) {
   return conceptA.trim().toLowerCase() === conceptB.trim().toLowerCase()
 }
 
+function normalizeConceptName(name: string) {
+  return name.trim().toLowerCase()
+}
+
 function PatternCard({
   accentClass,
   children,
   description,
+  isExpanded,
+  onClick,
   title,
 }: {
   accentClass: string
   children: ReactNode
   description: string
+  isExpanded: boolean
+  onClick: () => void
   title: string
 }) {
   return (
-    <article
-      className={`rounded-lg border border-[#e7e5e4] border-l-4 bg-white p-4 shadow-sm ${accentClass}`}
+    <button
+      aria-expanded={isExpanded}
+      className={`w-full rounded-lg border border-[#e7e5e4] border-l-4 bg-white p-4 text-left shadow-sm transition-colors hover:bg-[#fafaf9] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2 ${accentClass}`}
+      onClick={onClick}
+      type="button"
     >
       <h3 className="flex items-center gap-2 text-[14px] font-bold leading-5 text-[#1c1917]">
         {children}
         {title}
       </h3>
-      <p className="mt-2 text-[13px] leading-5 text-[#57534e]">
+      <p
+        className={`mt-2 text-[13px] leading-5 text-[#57534e] ${
+          isExpanded
+            ? ''
+            : 'overflow-hidden [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]'
+        }`}
+      >
         {stripMarkdownEmphasis(description)}
       </p>
-    </article>
+    </button>
   )
 }
 
 export function LeftSidebar({
+  activeTab,
   connections,
   contradictions,
+  graphNodes,
   isIngesting,
+  onActiveTabChange,
   onIngestText,
+  onNodeSelect,
 }: LeftSidebarProps) {
-  const [activeTab, setActiveTab] = useState<SidebarTab>('insights')
   const [content, setContent] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [expandedPatternKey, setExpandedPatternKey] = useState<string | null>(null)
   const visibleContradictions = contradictions.filter(
     (contradiction) =>
       !isSelfComparison(contradiction.concept_a, contradiction.concept_b),
@@ -138,7 +164,23 @@ export function LeftSidebar({
     (connection) => !isSelfComparison(connection.concept_a, connection.concept_b),
   )
 
+  useEffect(() => {
+    if (!successMessage) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSuccessMessage(null)
+    }, 3000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [successMessage])
+
   async function handleSubmit() {
+    if (isIngesting) {
+      return
+    }
+
     const trimmedContent = content.trim()
 
     if (!trimmedContent) {
@@ -147,12 +189,28 @@ export function LeftSidebar({
     }
 
     setInputError(null)
+    setSuccessMessage(null)
 
     try {
-      await onIngestText(trimmedContent)
+      const result = await onIngestText(trimmedContent)
       setContent('')
+      setSuccessMessage(`Added ${result.concepts_added} concepts`)
     } catch {
       setInputError('Processing failed. Try again.')
+    }
+  }
+
+  function selectRelatedNode(conceptA: string, conceptB: string, patternKey: string) {
+    setExpandedPatternKey((currentKey) => (currentKey === patternKey ? null : patternKey))
+
+    const matchingNode = graphNodes.find((node) => {
+      const nodeName = normalizeConceptName(node.name)
+
+      return nodeName === normalizeConceptName(conceptA) || nodeName === normalizeConceptName(conceptB)
+    })
+
+    if (matchingNode) {
+      onNodeSelect(matchingNode)
     }
   }
 
@@ -167,13 +225,6 @@ export function LeftSidebar({
           </div>
         </div>
 
-        <button
-          className="mt-6 h-10 w-full rounded-lg bg-[#4338ca] text-[14px] font-medium text-white transition-colors hover:bg-[#3730a3] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2"
-          type="button"
-        >
-          + New Node
-        </button>
-
         <div className="mt-6 flex border-b border-[#e7e5e4]" role="tablist">
           <button
             aria-selected={activeTab === 'insights'}
@@ -182,7 +233,7 @@ export function LeftSidebar({
                 ? 'border-[#4338ca] text-[#4338ca]'
                 : 'border-transparent text-[#57534e]'
             }`}
-            onClick={() => setActiveTab('insights')}
+            onClick={() => onActiveTabChange('insights')}
             role="tab"
             type="button"
           >
@@ -195,7 +246,7 @@ export function LeftSidebar({
                 ? 'border-[#4338ca] text-[#4338ca]'
                 : 'border-transparent text-[#57534e]'
             }`}
-            onClick={() => setActiveTab('input')}
+            onClick={() => onActiveTabChange('input')}
             role="tab"
             type="button"
           >
@@ -204,37 +255,82 @@ export function LeftSidebar({
         </div>
 
         {activeTab === 'insights' ? (
-          <div className="mt-6 space-y-4">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[#a8a29e]">
-              DETECTED PATTERNS
-            </h2>
+          <div className="mt-6 space-y-6">
             {visibleContradictions.length === 0 && visibleConnections.length === 0 ? (
-              <p className="text-[13px] leading-5 text-[#a8a29e]">No detected patterns yet.</p>
+              <p className="text-[13px] leading-5 text-[#a8a29e]">
+                Add more knowledge to discover patterns
+              </p>
             ) : null}
-            {visibleContradictions.map((contradiction) => (
-              <PatternCard
-                accentClass="border-l-[#e11d48]"
-                description={contradiction.explanation}
-                key={contradiction.id ?? `${contradiction.concept_a}-${contradiction.concept_b}`}
-                title={`${contradiction.concept_a} vs ${contradiction.concept_b}`}
-              >
-                <span className="text-[#e11d48]">
-                  <WarningIcon />
-                </span>
-              </PatternCard>
-            ))}
-            {visibleConnections.map((connection) => (
-              <PatternCard
-                accentClass="border-l-[#059669]"
-                description={connection.explanation}
-                key={connection.id ?? `${connection.concept_a}-${connection.concept_b}`}
-                title={`${connection.concept_a} + ${connection.concept_b}`}
-              >
-                <span className="text-[#059669]">
-                  <LinkIcon />
-                </span>
-              </PatternCard>
-            ))}
+            <section className="space-y-4">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[#a8a29e]">
+                CONTRADICTIONS
+              </h2>
+              {visibleContradictions.length === 0 ? (
+                <p className="text-[13px] leading-5 text-[#a8a29e]">
+                  No contradictions found yet.
+                </p>
+              ) : null}
+              {visibleContradictions.map((contradiction) => {
+                const patternKey =
+                  contradiction.id ??
+                  contradiction._id ??
+                  `contradiction-${contradiction.concept_a}-${contradiction.concept_b}`
+
+                return (
+                  <PatternCard
+                    accentClass="border-l-[#e11d48]"
+                    description={contradiction.explanation}
+                    isExpanded={expandedPatternKey === patternKey}
+                    key={patternKey}
+                    onClick={() =>
+                      selectRelatedNode(
+                        contradiction.concept_a,
+                        contradiction.concept_b,
+                        patternKey,
+                      )
+                    }
+                    title={`${contradiction.concept_a} vs ${contradiction.concept_b}`}
+                  >
+                    <span className="text-[#e11d48]">
+                      <WarningIcon />
+                    </span>
+                  </PatternCard>
+                )
+              })}
+            </section>
+            <section className="space-y-4">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[#a8a29e]">
+                CONNECTIONS
+              </h2>
+              {visibleConnections.length === 0 ? (
+                <p className="text-[13px] leading-5 text-[#a8a29e]">
+                  No connections found yet.
+                </p>
+              ) : null}
+              {visibleConnections.map((connection) => {
+                const patternKey =
+                  connection.id ??
+                  connection._id ??
+                  `connection-${connection.concept_a}-${connection.concept_b}`
+
+                return (
+                  <PatternCard
+                    accentClass="border-l-[#059669]"
+                    description={connection.explanation}
+                    isExpanded={expandedPatternKey === patternKey}
+                    key={patternKey}
+                    onClick={() =>
+                      selectRelatedNode(connection.concept_a, connection.concept_b, patternKey)
+                    }
+                    title={`${connection.concept_a} + ${connection.concept_b}`}
+                  >
+                    <span className="text-[#059669]">
+                      <LinkIcon />
+                    </span>
+                  </PatternCard>
+                )
+              })}
+            </section>
           </div>
         ) : (
           <div className="mt-6 space-y-4">
@@ -257,13 +353,26 @@ export function LeftSidebar({
             {inputError ? (
               <p className="text-[13px] leading-5 text-[#e11d48]">{inputError}</p>
             ) : null}
+            {successMessage ? (
+              <p className="text-[13px] leading-5 text-[#059669]">{successMessage}</p>
+            ) : null}
             <button
-              className="h-10 w-full rounded-lg bg-[#4338ca] text-[14px] font-medium text-white transition-colors hover:bg-[#3730a3] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#a8a29e]"
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#4338ca] text-[14px] font-medium text-white transition-colors hover:bg-[#3730a3] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#a8a29e]"
               disabled={isIngesting}
               onClick={handleSubmit}
               type="button"
             >
-              {isIngesting ? 'Processing...' : 'Add to Graph'}
+              {isIngesting ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin"
+                  />
+                  Processing...
+                </>
+              ) : (
+                'Add to Graph'
+              )}
             </button>
           </div>
         )}

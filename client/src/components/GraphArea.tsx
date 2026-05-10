@@ -9,7 +9,9 @@ type GraphAreaProps = {
   graphData: GraphData
   isLoading: boolean
   isRefreshing: boolean
+  onOpenInput: () => void
   onNodeSelect: (node: GraphNode) => void
+  selectedNodeId?: string
 }
 
 type Dimensions = {
@@ -18,8 +20,9 @@ type Dimensions = {
 }
 
 const DEFAULT_DIMENSIONS: Dimensions = { height: 600, width: 600 }
-const NODE_RADIUS = 7
-const HOVER_NODE_RADIUS = 9
+const NODE_RADIUS = 8
+const HOVER_NODE_RADIUS = 10
+const SELECTED_NODE_RADIUS = 12
 
 type AdjustableForce = {
   distance?: (value: number) => unknown
@@ -28,6 +31,10 @@ type AdjustableForce = {
 
 function insightKey(conceptA: string, conceptB: string) {
   return [conceptA.trim().toLowerCase(), conceptB.trim().toLowerCase()].sort().join('::')
+}
+
+function normalizeConceptName(name: string) {
+  return name.trim().toLowerCase()
 }
 
 function endpointValue(endpoint: string | GraphNode) {
@@ -39,23 +46,44 @@ function drawNode(
   ctx: CanvasRenderingContext2D,
   globalScale: number,
   isHovered: boolean,
+  isSelected: boolean,
 ) {
   const x = node.x ?? 0
   const y = node.y ?? 0
-  const radius = isHovered ? HOVER_NODE_RADIUS : NODE_RADIUS
+  const radius = isSelected ? SELECTED_NODE_RADIUS : isHovered ? HOVER_NODE_RADIUS : NODE_RADIUS
   const label = node.name || 'Untitled'
   const fontSize = 12 / globalScale
+  const labelX = x + radius + 7 / globalScale
 
+  ctx.save()
+  ctx.shadowColor = 'rgba(255,255,255,0.95)'
+  ctx.shadowBlur = 10 / globalScale
+  ctx.beginPath()
+  ctx.arc(x, y, radius + 4 / globalScale, 0, 2 * Math.PI)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
   ctx.beginPath()
   ctx.arc(x, y, radius, 0, 2 * Math.PI)
-  ctx.fillStyle = '#4338ca'
+  ctx.fillStyle = isSelected ? '#3730a3' : '#4338ca'
   ctx.fill()
+  ctx.restore()
 
+  ctx.save()
   ctx.font = `500 ${fontSize}px Inter, system-ui, sans-serif`
-  ctx.fillStyle = '#1c1917'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillText(label, x + radius + 5 / globalScale, y)
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 4 / globalScale
+  ctx.shadowColor = '#ffffff'
+  ctx.shadowBlur = 4 / globalScale
+  ctx.strokeStyle = '#ffffff'
+  ctx.strokeText(label, labelX, y)
+  ctx.fillStyle = '#1c1917'
+  ctx.fillText(label, labelX, y)
+  ctx.restore()
 }
 
 function paintNodePointerArea(
@@ -78,7 +106,9 @@ export function GraphArea({
   graphData,
   isLoading,
   isRefreshing,
+  onOpenInput,
   onNodeSelect,
+  selectedNodeId,
 }: GraphAreaProps) {
   const containerRef = useRef<HTMLElement | null>(null)
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined)
@@ -109,26 +139,85 @@ export function GraphArea({
   }, [])
 
   const graph = useMemo(() => {
-    const nodeIdByName = new Map(graphData.nodes.map((node) => [node.name, node.id]))
+    const nodeById = new Map(graphData.nodes.map((node) => [node.id, node]))
+    const nodeByName = new Map(
+      graphData.nodes.map((node) => [normalizeConceptName(node.name), node]),
+    )
+
+    function resolveNodeReference(endpoint: string | GraphNode) {
+      if (typeof endpoint !== 'string') {
+        return {
+          id: endpoint.id,
+          name: endpoint.name,
+        }
+      }
+
+      const node = nodeById.get(endpoint) ?? nodeByName.get(normalizeConceptName(endpoint))
+
+      return {
+        id: node?.id ?? endpoint,
+        name: node?.name ?? endpoint,
+      }
+    }
+
+    const relationshipLinks = graphData.links.map((link) => {
+      const source = resolveNodeReference(link.source)
+      const target = resolveNodeReference(link.target)
+
+      return {
+        ...link,
+        source: source.id,
+        sourceName: source.name,
+        target: target.id,
+        targetName: target.name,
+      }
+    })
+
+    const contradictionLinks = contradictions.flatMap((contradiction, index) => {
+      const source = nodeByName.get(normalizeConceptName(contradiction.concept_a))
+      const target = nodeByName.get(normalizeConceptName(contradiction.concept_b))
+
+      if (!source || !target || source.id === target.id) {
+        return []
+      }
+
+      return [
+        {
+          id: `contradiction-${contradiction.id ?? contradiction._id ?? index}`,
+          source: source.id,
+          sourceName: source.name,
+          target: target.id,
+          targetName: target.name,
+          relationship_type: 'contradiction',
+        },
+      ]
+    })
+
+    const connectionLinks = connections.flatMap((connection, index) => {
+      const source = nodeByName.get(normalizeConceptName(connection.concept_a))
+      const target = nodeByName.get(normalizeConceptName(connection.concept_b))
+
+      if (!source || !target || source.id === target.id) {
+        return []
+      }
+
+      return [
+        {
+          id: `connection-${connection.id ?? connection._id ?? index}`,
+          source: source.id,
+          sourceName: source.name,
+          target: target.id,
+          targetName: target.name,
+          relationship_type: 'connection',
+        },
+      ]
+    })
 
     return {
       nodes: graphData.nodes,
-      links: graphData.links.map((link) => {
-        const source = endpointValue(link.source)
-        const target = endpointValue(link.target)
-        const sourceName = typeof link.source === 'string' ? link.source : link.source.name
-        const targetName = typeof link.target === 'string' ? link.target : link.target.name
-
-        return {
-          ...link,
-          source: nodeIdByName.get(source) ?? source,
-          sourceName,
-          target: nodeIdByName.get(target) ?? target,
-          targetName,
-        }
-      }),
+      links: [...relationshipLinks, ...contradictionLinks, ...connectionLinks],
     }
-  }, [graphData])
+  }, [connections, contradictions, graphData])
 
   useEffect(() => {
     const graphInstance = graphRef.current
@@ -144,6 +233,18 @@ export function GraphArea({
     linkForce?.distance?.(90)
     graphInstance.d3ReheatSimulation()
   }, [graph.nodes.length, graph.links.length])
+
+  useEffect(() => {
+    if (graph.nodes.length === 0) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      graphRef.current?.zoomToFit(500, 80)
+    }, 500)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [graph.nodes.length])
 
   const contradictionKeys = useMemo(
     () =>
@@ -169,11 +270,11 @@ export function GraphArea({
   }
 
   function isContradictionLink(link: GraphLink) {
-    return contradictionKeys.has(linkKey(link))
+    return link.relationship_type === 'contradiction' || contradictionKeys.has(linkKey(link))
   }
 
   function isConnectionLink(link: GraphLink) {
-    return connectionKeys.has(linkKey(link))
+    return link.relationship_type === 'connection' || connectionKeys.has(linkKey(link))
   }
 
   return (
@@ -186,8 +287,15 @@ export function GraphArea({
           Loading graph...
         </div>
       ) : graph.nodes.length === 0 ? (
-        <div className="absolute inset-0 flex items-center justify-center text-center text-[14px] text-[#57534e]">
-          Add text to start building your graph.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-center text-[14px] text-[#57534e]">
+          <p>Add text to start building your graph.</p>
+          <button
+            className="h-10 rounded-lg bg-[#4338ca] px-4 text-[14px] font-medium text-white transition-colors hover:bg-[#3730a3] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2"
+            onClick={onOpenInput}
+            type="button"
+          >
+            Add to Graph
+          </button>
         </div>
       ) : (
         <ForceGraph2D<GraphNode, GraphLink>
@@ -220,7 +328,13 @@ export function GraphArea({
             return 1
           }}
           nodeCanvasObject={(node, ctx, globalScale) =>
-            drawNode(node, ctx, globalScale, hoveredNodeId === node.id)
+            drawNode(
+              node,
+              ctx,
+              globalScale,
+              hoveredNodeId === node.id,
+              selectedNodeId === node.id,
+            )
           }
           nodeId="id"
           nodeLabel="name"

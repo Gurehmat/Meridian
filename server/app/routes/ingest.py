@@ -1,4 +1,3 @@
-import asyncio
 import re
 from typing import Any
 
@@ -148,7 +147,6 @@ async def ingest_text(payload: TextIngestRequest, request: Request) -> dict[str,
                 )
 
                 try:
-                    await asyncio.sleep(13)
                     analysis = await analyze_concept_pair(
                         name,
                         description,

@@ -1,73 +1,95 @@
-# React + TypeScript + Vite
+# Meridian
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Map your mind. Find what conflicts.
 
-Currently, two official plugins are available:
+Meridian is an AI-powered personal knowledge graph. Dump in anything (text, articles, ideas, notes) and it automatically extracts concepts, builds a visual interactive graph, and finds contradictions and unexpected connections across everything you have ever added.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## What Makes It Different
 
-## React Compiler
+Most AI tools forget what you said last week. Meridian remembers everything and actively argues with it. It finds where your beliefs conflict, where ideas from completely different domains secretly connect, and shows your entire thinking as a visual, explorable graph.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## How It Works
 
-## Expanding the ESLint configuration
+1. Paste text or notes into the input panel
+2. Gemini 2.5 Flash extracts key concepts and relationships as structured data
+3. MiniLM (all-MiniLM-L6-v2) generates 384-dimensional embeddings for each concept
+4. MongoDB Atlas Vector Search finds semantically similar concepts across your entire knowledge base
+5. Gemini analyzes similar pairs for contradictions ("You believe X but also Y") and unexpected connections ("Your BJJ concept connects to this Stoic principle because...")
+6. An interactive force-directed graph visualizes all your concepts, relationships, contradictions, and connections
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Tech Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+**Frontend:** React 18, TypeScript, Vite, Tailwind CSS, react-force-graph-2d, deployed on Vercel
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+**Backend:** Python, FastAPI, Dockerized for Google Cloud Run
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+**AI/ML:**
+- Google Gemini 2.5 Flash for concept extraction, contradiction detection, and connection surfacing
+- sentence-transformers/all-MiniLM-L6-v2 (HuggingFace) for generating 384-dim embeddings locally in the Python backend
+
+**Database:** MongoDB Atlas with Atlas Vector Search (cosine similarity, 384 dimensions)
+
+## Cloud Technologies Used
+
+- Google Cloud Run (backend hosting)
+- Google Gemini API (AI reasoning)
+- MongoDB Atlas + Vector Search (database + semantic search)
+- Vercel (frontend hosting)
+
+## Setup
+
+### Frontend
+```bash
+cd client
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Backend
+```bash
+cd server
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8080
 ```
+
+### Environment Variables
+
+**server/.env**
+```
+MONGODB_URI=your_mongodb_atlas_connection_string
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+**client/.env**
+```
+VITE_API_URL=http://localhost:8080
+```
+
+### MongoDB Atlas Vector Search Index
+
+Create a vector search index named `embedding_index` on the `concepts` collection:
+
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 384,
+      "similarity": "cosine"
+    }
+  ]
+}
+```
+
+## Architecture
+
+```
+User Input -> FastAPI /ingest -> Gemini (concept extraction) -> MiniLM (embeddings)
+-> MongoDB Atlas (storage) -> Vector Search (find similar) -> Gemini (contradiction/connection detection)
+-> React frontend (force-directed graph visualization)
+```
+
+## Built For
+
+GDG Hacks 2026, University of Guelph
