@@ -48,6 +48,16 @@ class ConnectionModel(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class BeliefShiftModel(BaseModel):
+    concept_name: str
+    previous_description: str
+    new_description: str
+    shift_explanation: str
+    source_input_id: str
+    user_id: str
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class TextIngestRequest(BaseModel):
     content: str
     user_id: str

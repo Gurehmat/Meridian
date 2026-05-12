@@ -14,6 +14,10 @@ if GEMINI_API_KEY:
 model = genai.GenerativeModel(MODEL_NAME)
 
 
+class GeminiEmptyResponseError(RuntimeError):
+    """Raised when the model returns no usable text for JSON extraction."""
+
+
 def _parse_json_object(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     fence_match = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL)
@@ -68,10 +72,13 @@ async def _generate_json(prompt: str) -> dict[str, Any]:
         response_text = getattr(response, "text", "") or ""
         if not response_text.strip():
             print("[gemini._generate_json] Gemini returned empty text response.")
+            raise GeminiEmptyResponseError("Gemini returned an empty response")
         return _parse_json_object(response_text)
+    except GeminiEmptyResponseError:
+        raise
     except Exception as exc:
         print(f"[gemini._generate_json] Gemini request failed: {exc}")
-        return {}
+        raise
 
 
 async def extract_concepts(text: str) -> dict[str, list[dict[str, Any]]]:
@@ -94,7 +101,14 @@ Do not include markdown.
 Text:
 {text}
 """
-    data = await _generate_json(prompt)
+    try:
+        data = await _generate_json(prompt)
+    except GeminiEmptyResponseError as exc:
+        print(f"[gemini.extract_concepts] {exc}")
+        return {"concepts": [], "relationships": []}
+    except Exception as exc:
+        print(f"[gemini.extract_concepts] Gemini extraction failed: {exc}")
+        return {"concepts": [], "relationships": []}
     concepts = data.get("concepts", [])
     relationships = data.get("relationships", [])
 
@@ -127,7 +141,15 @@ Concept B:
 Name: {concept_b_name}
 Description: {concept_b_desc}
 """
-    data = await _generate_json(prompt)
+    try:
+        data = await _generate_json(prompt)
+    except GeminiEmptyResponseError as exc:
+        print(f"[gemini.detect_contradiction] {exc}")
+        return {
+            "is_contradiction": False,
+            "confidence": "low",
+            "explanation": "",
+        }
 
     return {
         "is_contradiction": _as_bool(data.get("is_contradiction", False)),
@@ -158,7 +180,14 @@ Concept B:
 Name: {concept_b_name}
 Description: {concept_b_desc}
 """
-    data = await _generate_json(prompt)
+    try:
+        data = await _generate_json(prompt)
+    except GeminiEmptyResponseError as exc:
+        print(f"[gemini.find_connection] {exc}")
+        return {
+            "connection_exists": False,
+            "explanation": "",
+        }
 
     return {
         "connection_exists": _as_bool(data.get("connection_exists", False)),
@@ -191,7 +220,17 @@ Respond ONLY in this JSON format:
   "connection_explanation": "Short explanation"
 }}
 """
-    data = await _generate_json(prompt)
+    try:
+        data = await _generate_json(prompt)
+    except GeminiEmptyResponseError as exc:
+        print(f"[gemini.analyze_concept_pair] {exc}")
+        return {
+            "is_contradiction": False,
+            "contradiction_confidence": "low",
+            "contradiction_explanation": "",
+            "connection_exists": False,
+            "connection_explanation": "",
+        }
 
     return {
         "is_contradiction": _as_bool(data.get("is_contradiction", False)),
@@ -199,4 +238,39 @@ Respond ONLY in this JSON format:
         "contradiction_explanation": str(data.get("contradiction_explanation", "")),
         "connection_exists": _as_bool(data.get("connection_exists", False)),
         "connection_explanation": str(data.get("connection_explanation", "")),
+    }
+
+
+async def analyze_belief_shift(
+    concept_name: str,
+    old_description: str,
+    new_description: str,
+) -> dict[str, str | bool]:
+    prompt = f"""
+A user previously understood this concept as:
+"{concept_name}": "{old_description}"
+
+They now describe it as:
+"{concept_name}": "{new_description}"
+
+Has their understanding meaningfully shifted? If yes, explain how their thinking evolved. Focus on what changed, what was added, or what was abandoned.
+
+Respond ONLY in this JSON format:
+{{
+  "has_shifted": true,
+  "shift_explanation": "2-3 sentences describing the evolution"
+}}
+"""
+    try:
+        data = await _generate_json(prompt)
+    except GeminiEmptyResponseError as exc:
+        print(f"[gemini.analyze_belief_shift] {exc}")
+        return {
+            "has_shifted": False,
+            "shift_explanation": "",
+        }
+
+    return {
+        "has_shifted": _as_bool(data.get("has_shifted", False)),
+        "shift_explanation": str(data.get("shift_explanation", "")),
     }

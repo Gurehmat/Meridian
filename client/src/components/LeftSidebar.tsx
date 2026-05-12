@@ -1,18 +1,29 @@
-import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
-import type { Connection, Contradiction, GraphNode, IngestResponse } from '../types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent, ReactNode } from 'react'
+import type {
+  BeliefShift,
+  Connection,
+  Contradiction,
+  Entry,
+  GraphNode,
+  IngestResponse,
+} from '../types'
 
-export type SidebarTab = 'insights' | 'input'
+export type SidebarTab = 'insights' | 'input' | 'timeline' | 'entries'
 
 type LeftSidebarProps = {
   activeTab: SidebarTab
   connections: Connection[]
   contradictions: Contradiction[]
+  entries: Entry[]
   graphNodes: GraphNode[]
   isIngesting: boolean
   onActiveTabChange: (tab: SidebarTab) => void
+  onIngestPDF: (file: File) => Promise<IngestResponse>
   onIngestText: (content: string) => Promise<IngestResponse>
   onNodeSelect: (node: GraphNode) => void
+  selectedNodeId?: string | null
+  timeline: BeliefShift[]
 }
 
 function MeridianMark() {
@@ -95,12 +106,55 @@ function stripMarkdownEmphasis(text: string) {
   return text.replace(/\*/g, '')
 }
 
+function previewInputText(text: string) {
+  return text.length > 40 ? `${text.slice(0, 40)}...` : text
+}
+
+function previewEntryText(text: string) {
+  return text.length > 80 ? `${text.slice(0, 80)}...` : text
+}
+
 function isSelfComparison(conceptA: string, conceptB: string) {
   return conceptA.trim().toLowerCase() === conceptB.trim().toLowerCase()
 }
 
 function normalizeConceptName(name: string) {
   return name.trim().toLowerCase()
+}
+
+function formatTimestamp(timestamp?: string) {
+  if (!timestamp) {
+    return 'Unknown time'
+  }
+
+  const date = new Date(timestamp)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown time'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
+}
+
+function formatEntryDate(timestamp?: string) {
+  if (!timestamp) {
+    return 'Unknown date'
+  }
+
+  const date = new Date(timestamp)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown date'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(date)
 }
 
 function PatternCard({
@@ -142,26 +196,120 @@ function PatternCard({
   )
 }
 
+function TimelineCard({ shift }: { shift: BeliefShift }) {
+  return (
+    <article className="rounded-lg border border-[#e7e5e4] border-l-4 border-l-[#8b5cf6] bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-[14px] font-bold leading-5 text-[#1c1917]">
+          {shift.concept_name}
+        </h3>
+        <span className="rounded-full bg-[#f5f3ff] px-2 py-1 text-[11px] font-medium leading-4 text-[#6d28d9]">
+          evolved
+        </span>
+      </div>
+      <div className="mt-3 space-y-2">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#a8a29e]">
+            Before
+          </div>
+          <p className="mt-1 text-[13px] leading-5 text-[#78716c]">
+            {shift.previous_description}
+          </p>
+        </div>
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#a8a29e]">
+            After
+          </div>
+          <p className="mt-1 text-[13px] leading-5 text-[#1c1917]">
+            {shift.new_description}
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 text-[13px] leading-5 text-[#57534e]">
+        {shift.shift_explanation}
+      </p>
+      <time className="mt-3 block text-[11px] leading-4 text-[#a8a29e]">
+        {formatTimestamp(shift.created_at)}
+      </time>
+    </article>
+  )
+}
+
+function EntryCard({
+  entry,
+  isSelected,
+  matchingNode,
+  onNodeSelect,
+}: {
+  entry: Entry
+  isSelected: boolean
+  matchingNode?: GraphNode
+  onNodeSelect: (node: GraphNode) => void
+}) {
+  return (
+    <button
+      className={`w-full rounded-lg border bg-white px-4 py-3 text-left transition-all hover:border-[#4338ca] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2 ${
+        isSelected
+          ? 'border-[#e7e5e4] border-l-4 border-l-[#4338ca]'
+          : 'border-[#e7e5e4]'
+      } cursor-pointer`}
+      onClick={() => {
+        if (matchingNode) {
+          onNodeSelect(matchingNode)
+        }
+      }}
+      type="button"
+    >
+      <p className="text-[13px] leading-5 text-[#1c1917]">
+        {previewEntryText(entry.content)}
+      </p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <time className="text-[11px] leading-4 text-[#a8a29e]">
+          {formatEntryDate(entry.created_at)}
+        </time>
+        <span className="shrink-0 rounded-full bg-[#4338ca] px-2 py-1 text-[11px] font-medium leading-4 text-white">
+          {entry.concept_count} concepts
+        </span>
+      </div>
+    </button>
+  )
+}
+
 export function LeftSidebar({
   activeTab,
   connections,
   contradictions,
+  entries,
   graphNodes,
   isIngesting,
   onActiveTabChange,
+  onIngestPDF,
   onIngestText,
   onNodeSelect,
+  selectedNodeId,
+  timeline,
 }: LeftSidebarProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [content, setContent] = useState('')
   const [inputError, setInputError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [expandedPatternKey, setExpandedPatternKey] = useState<string | null>(null)
+  const [isDraggingPDF, setIsDraggingPDF] = useState(false)
   const visibleContradictions = contradictions.filter(
     (contradiction) =>
       !isSelfComparison(contradiction.concept_a, contradiction.concept_b),
   )
   const visibleConnections = connections.filter(
     (connection) => !isSelfComparison(connection.concept_a, connection.concept_b),
+  )
+  const inputNodeById = useMemo(
+    () =>
+      new Map(
+        graphNodes
+          .filter((node) => node.type === 'input')
+          .map((node) => [node.id, node]),
+      ),
+    [graphNodes],
   )
 
   useEffect(() => {
@@ -194,9 +342,77 @@ export function LeftSidebar({
     try {
       const result = await onIngestText(trimmedContent)
       setContent('')
-      setSuccessMessage(`Added ${result.concepts_added} concepts`)
+      setSuccessMessage(
+        `Added: ${previewInputText(trimmedContent)} with ${
+          result.concepts_extracted ?? result.concepts_added
+        } concepts extracted`,
+      )
     } catch {
       setInputError('Processing failed. Try again.')
+    }
+  }
+
+  async function handlePDFFile(file: File) {
+    if (isIngesting) {
+      return
+    }
+
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setInputError('Upload a PDF file.')
+      setSuccessMessage(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+      return
+    }
+
+    setInputError(null)
+    setSuccessMessage(null)
+
+    try {
+      const result = await onIngestPDF(file)
+      setSuccessMessage(
+        `Added: ${file.name} with ${
+          result.concepts_extracted ?? result.concepts_added
+        } concepts extracted`,
+      )
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch {
+      setInputError('PDF processing failed. Try again.')
+    }
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+
+    if (file) {
+      void handlePDFFile(file)
+    }
+  }
+
+  function handlePDFDragOver(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault()
+
+    if (!isIngesting) {
+      setIsDraggingPDF(true)
+    }
+  }
+
+  function handlePDFDragLeave(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    setIsDraggingPDF(false)
+  }
+
+  function handlePDFDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault()
+    setIsDraggingPDF(false)
+
+    const file = event.dataTransfer.files?.[0]
+
+    if (file) {
+      void handlePDFFile(file)
     }
   }
 
@@ -228,7 +444,7 @@ export function LeftSidebar({
         <div className="mt-6 flex border-b border-[#e7e5e4]" role="tablist">
           <button
             aria-selected={activeTab === 'insights'}
-            className={`h-10 flex-1 border-b-2 text-[14px] font-medium ${
+            className={`h-10 flex-1 border-b-2 text-[13px] font-medium ${
               activeTab === 'insights'
                 ? 'border-[#4338ca] text-[#4338ca]'
                 : 'border-transparent text-[#57534e]'
@@ -241,7 +457,7 @@ export function LeftSidebar({
           </button>
           <button
             aria-selected={activeTab === 'input'}
-            className={`h-10 flex-1 border-b-2 text-[14px] font-medium ${
+            className={`h-10 flex-1 border-b-2 text-[13px] font-medium ${
               activeTab === 'input'
                 ? 'border-[#4338ca] text-[#4338ca]'
                 : 'border-transparent text-[#57534e]'
@@ -251,6 +467,32 @@ export function LeftSidebar({
             type="button"
           >
             Input
+          </button>
+          <button
+            aria-selected={activeTab === 'timeline'}
+            className={`h-10 flex-1 border-b-2 text-[13px] font-medium ${
+              activeTab === 'timeline'
+                ? 'border-[#4338ca] text-[#4338ca]'
+                : 'border-transparent text-[#57534e]'
+            }`}
+            onClick={() => onActiveTabChange('timeline')}
+            role="tab"
+            type="button"
+          >
+            Timeline
+          </button>
+          <button
+            aria-selected={activeTab === 'entries'}
+            className={`h-10 flex-1 border-b-2 text-[13px] font-medium ${
+              activeTab === 'entries'
+                ? 'border-[#4338ca] text-[#4338ca]'
+                : 'border-transparent text-[#57534e]'
+            }`}
+            onClick={() => onActiveTabChange('entries')}
+            role="tab"
+            type="button"
+          >
+            Entries
           </button>
         </div>
 
@@ -332,6 +574,41 @@ export function LeftSidebar({
               })}
             </section>
           </div>
+        ) : activeTab === 'timeline' ? (
+          <div className="mt-6 space-y-4">
+            {timeline.length === 0 ? (
+              <p className="text-[13px] leading-5 text-[#a8a29e]">
+                No belief changes recorded yet.
+              </p>
+            ) : null}
+            {timeline.map((shift) => (
+              <TimelineCard
+                key={shift.id ?? `${shift.concept_name}-${shift.created_at}`}
+                shift={shift}
+              />
+            ))}
+          </div>
+        ) : activeTab === 'entries' ? (
+          <div className="mt-6 space-y-3">
+            {entries.length === 0 ? (
+              <p className="text-[13px] leading-5 text-[#a8a29e]">
+                No entries yet. Add text in the Input tab to get started.
+              </p>
+            ) : null}
+            {entries.map((entry) => {
+              const matchingNode = inputNodeById.get(entry.id)
+
+              return (
+                <EntryCard
+                  entry={entry}
+                  isSelected={selectedNodeId === entry.id}
+                  key={entry.id}
+                  matchingNode={matchingNode}
+                  onNodeSelect={onNodeSelect}
+                />
+              )
+            })}
+          </div>
         ) : (
           <div className="mt-6 space-y-4">
             <textarea
@@ -344,8 +621,25 @@ export function LeftSidebar({
               placeholder="Paste text, ideas, or notes..."
               value={content}
             />
+            <input
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              disabled={isIngesting}
+              onChange={handleFileInputChange}
+              ref={fileInputRef}
+              type="file"
+            />
             <button
-              className="flex h-20 w-full items-center justify-center rounded-lg border-2 border-dashed border-[#d6d3d1] px-4 text-center text-[13px] leading-5 text-[#a8a29e] hover:border-[#a8a29e]"
+              className={`flex h-20 w-full items-center justify-center rounded-lg border-2 border-dashed px-4 text-center text-[13px] leading-5 transition-colors focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#f5f5f4] ${
+                isDraggingPDF
+                  ? 'border-[#4338ca] text-[#4338ca]'
+                  : 'border-[#d6d3d1] text-[#a8a29e] hover:border-[#a8a29e]'
+              }`}
+              disabled={isIngesting}
+              onClick={() => fileInputRef.current?.click()}
+              onDragLeave={handlePDFDragLeave}
+              onDragOver={handlePDFDragOver}
+              onDrop={handlePDFDrop}
               type="button"
             >
               Drop a PDF here or click to upload

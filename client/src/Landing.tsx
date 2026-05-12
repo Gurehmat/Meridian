@@ -1,7 +1,26 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from './contexts/useAuth'
 
 function Landing() {
   const navigate = useNavigate()
+  const { signIn } = useAuth()
+  const [isSigningIn, setIsSigningIn] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSignIn() {
+    setIsSigningIn(true)
+    setError(null)
+
+    try {
+      await signIn()
+      navigate('/app')
+    } catch (signInError) {
+      setError(signInError instanceof Error ? signInError.message : 'Unable to sign in with Google')
+    } finally {
+      setIsSigningIn(false)
+    }
+  }
 
   return (
     <main className="flex min-h-svh items-center justify-center bg-[#fafaf9] bg-[radial-gradient(circle,#e7e5e4_1px,transparent_1px)] [background-size:24px_24px] px-6 py-8 text-[#0c0a09]">
@@ -34,8 +53,9 @@ function Landing() {
         </p>
 
         <button
-          className="mt-8 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#4338ca] text-[14px] font-medium text-white transition-colors hover:bg-[#3730a3] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2"
-          onClick={() => navigate('/app')}
+          className="mt-8 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#4338ca] text-[14px] font-medium text-white transition-colors hover:bg-[#3730a3] focus:outline-none focus:ring-2 focus:ring-[#4338ca] focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#78716c]"
+          disabled={isSigningIn}
+          onClick={handleSignIn}
           type="button"
         >
           <svg
@@ -52,15 +72,12 @@ function Landing() {
               strokeWidth="1.75"
             />
           </svg>
-          Sign in with Google
+          {isSigningIn ? 'Signing in...' : 'Sign in with Google'}
         </button>
 
-        <a
-          className="mt-5 text-[14px] font-normal leading-5 text-[#4338ca] hover:text-[#3730a3]"
-          href="#create-account"
-        >
-          Create an account
-        </a>
+        {error ? (
+          <p className="mt-5 text-[13px] font-normal leading-5 text-[#dc2626]">{error}</p>
+        ) : null}
 
         <p className="mt-8 max-w-[280px] text-center text-[12px] font-normal leading-5 text-[#a8a29e]">
           By continuing, you agree to our Terms of Service and Privacy Policy.

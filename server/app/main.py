@@ -5,9 +5,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.config import DATABASE_NAME, MONGODB_URI
-from app.routes import graph, ingest, insights
+from app.routes import graph, ingest, insights, timeline
 
-COLLECTIONS = ("concepts", "edges", "inputs", "contradictions", "connections")
+COLLECTIONS = (
+    "concepts",
+    "edges",
+    "inputs",
+    "contradictions",
+    "connections",
+    "belief_shifts",
+)
 
 
 @asynccontextmanager
@@ -46,6 +53,7 @@ app.add_middleware(
 app.include_router(ingest.router)
 app.include_router(graph.router)
 app.include_router(insights.router)
+app.include_router(timeline.router)
 
 
 @app.get("/")

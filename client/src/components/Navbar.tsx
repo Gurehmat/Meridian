@@ -1,3 +1,13 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/useAuth'
+import type { GraphNode } from '../types'
+
+type NavbarProps = {
+  nodes: GraphNode[]
+  onSearchAndFocusNode: (node: GraphNode) => void
+}
+
 function SearchIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 20 20">
@@ -43,21 +53,110 @@ function SettingsIcon() {
   )
 }
 
-export function Navbar() {
+function getUserInitial(displayName?: string | null, email?: string | null) {
+  const label = displayName?.trim() || email?.trim() || '?'
+
+  return label.charAt(0).toUpperCase()
+}
+
+function nodeTypeLabel(node: GraphNode) {
+  return node.type ?? 'concept'
+}
+
+export function Navbar({ nodes, onSearchAndFocusNode }: NavbarProps) {
+  const navigate = useNavigate()
+  const { signOut, user } = useAuth()
+  const searchRef = useRef<HTMLDivElement | null>(null)
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const userLabel = user?.displayName || user?.email || 'User'
+  const userInitial = getUserInitial(user?.displayName, user?.email)
+  const trimmedQuery = query.trim()
+  const matchingNodes = useMemo(() => {
+    if (!trimmedQuery) {
+      return []
+    }
+
+    const normalizedQuery = trimmedQuery.toLowerCase()
+
+    return nodes
+      .filter((node) => node.name.toLowerCase().includes(normalizedQuery))
+      .slice(0, 8)
+  }, [nodes, trimmedQuery])
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (!searchRef.current?.contains(event.target as Node)) {
+        setIsSearchOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [])
+
+  async function handleSignOut() {
+    await signOut()
+    setIsUserMenuOpen(false)
+    navigate('/')
+  }
+
+  function handleResultClick(node: GraphNode) {
+    setQuery(node.name)
+    setIsSearchOpen(false)
+    onSearchAndFocusNode(node)
+  }
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#e7e5e4] bg-white px-6">
       <div className="text-[18px] font-bold leading-none text-[#0c0a09]">Meridian</div>
 
-      <label className="relative block w-[320px] text-[#57534e]">
+      <div className="relative block w-[320px] text-[#57534e]" ref={searchRef}>
         <span className="absolute left-3 top-1/2 -translate-y-1/2">
           <SearchIcon />
         </span>
         <input
+          aria-label="Search nodes"
           className="h-9 w-full rounded-lg border border-[#d6d3d1] bg-white pl-9 pr-3 text-[14px] text-[#1c1917] outline-none placeholder:text-[#a8a29e] focus:border-[#4338ca] focus:ring-2 focus:ring-[#4338ca]/15"
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setIsSearchOpen(true)
+          }}
+          onFocus={() => setIsSearchOpen(Boolean(trimmedQuery))}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setIsSearchOpen(false)
+            }
+          }}
           placeholder="Search nodes..."
           type="search"
+          value={query}
         />
-      </label>
+        {isSearchOpen && trimmedQuery ? (
+          <div className="absolute left-0 top-11 z-30 w-full overflow-hidden rounded-lg border border-[#e7e5e4] bg-white py-2 shadow-md">
+            {matchingNodes.length === 0 ? (
+              <div className="px-3 py-2 text-[13px] text-[#a8a29e]">No nodes found</div>
+            ) : null}
+            {matchingNodes.map((node) => (
+              <button
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#f5f5f4] focus:bg-[#f5f5f4] focus:outline-none"
+                key={node.id}
+                onClick={() => handleResultClick(node)}
+                type="button"
+              >
+                <span className="truncate text-[14px] leading-5 text-[#1c1917]">
+                  {node.name}
+                </span>
+                <span className="shrink-0 text-[11px] uppercase leading-4 text-[#a8a29e]">
+                  {nodeTypeLabel(node)}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <div className="flex items-center gap-4 text-[#57534e]">
         <button
@@ -74,8 +173,41 @@ export function Navbar() {
         >
           <SettingsIcon />
         </button>
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#4338ca] text-[14px] font-semibold text-white">
-          G
+        <div className="relative">
+          <button
+            aria-expanded={isUserMenuOpen}
+            aria-label="Account menu"
+            className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#4338ca] text-[14px] font-semibold text-white hover:ring-2 hover:ring-[#4338ca]/20"
+            onClick={() => setIsUserMenuOpen((isOpen) => !isOpen)}
+            title={userLabel}
+            type="button"
+          >
+            {user?.photoURL ? (
+              <img
+                alt=""
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                src={user.photoURL}
+              />
+            ) : (
+              userInitial
+            )}
+          </button>
+
+          {isUserMenuOpen ? (
+            <div className="absolute right-0 top-11 z-30 w-48 rounded-lg border border-[#e7e5e4] bg-white py-2 text-[#1c1917] shadow-md">
+              <div className="truncate px-3 pb-2 text-[12px] text-[#78716c]" title={userLabel}>
+                {userLabel}
+              </div>
+              <button
+                className="w-full px-3 py-2 text-left text-[14px] text-[#1c1917] hover:bg-[#f5f5f4]"
+                onClick={() => void handleSignOut()}
+                type="button"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </header>

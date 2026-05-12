@@ -1,6 +1,13 @@
+from datetime import datetime
 from typing import Any
 
-from app.models import ConceptModel, ConnectionModel, ContradictionModel, EdgeModel
+from app.models import (
+    BeliefShiftModel,
+    ConceptModel,
+    ConnectionModel,
+    ContradictionModel,
+    EdgeModel,
+)
 
 
 def _serialize_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -10,7 +17,16 @@ def _serialize_document(document: dict[str, Any]) -> dict[str, Any]:
         serialized["_id"] = str(serialized["_id"])
         serialized["id"] = serialized["_id"]
 
+    for key, value in list(serialized.items()):
+        if isinstance(value, datetime):
+            serialized[key] = value.isoformat()
+
     return serialized
+
+
+def _input_name(content: str) -> str:
+    preview = content[:40]
+    return f"{preview}..." if len(content) > 40 else preview
 
 
 async def store_concept(
@@ -90,6 +106,27 @@ async def store_connection(
     return str(result.inserted_id)
 
 
+async def store_belief_shift(
+    db: Any,
+    concept_name: str,
+    previous_description: str,
+    new_description: str,
+    shift_explanation: str,
+    source_input_id: str,
+    user_id: str,
+) -> str:
+    belief_shift_model = BeliefShiftModel(
+        concept_name=concept_name,
+        previous_description=previous_description,
+        new_description=new_description,
+        shift_explanation=shift_explanation,
+        source_input_id=source_input_id,
+        user_id=user_id,
+    )
+    result = await db.belief_shifts.insert_one(belief_shift_model.model_dump())
+    return str(result.inserted_id)
+
+
 async def find_similar_concepts(
     db: Any,
     embedding: list[float],
@@ -160,26 +197,42 @@ async def find_similar_concepts(
     except Exception as exc:
         print(f"[graph_ops.find_similar_concepts] Vector search failed: {exc}")
         print(f"[graph_ops.find_similar_concepts] Pipeline: {pipeline}")
-        return []
+        raise
 
 
 async def get_all_nodes_and_edges(db: Any, user_id: str) -> dict[str, list[dict[str, Any]]]:
     concept_cursor = db.concepts.find({"user_id": user_id})
     edge_cursor = db.edges.find({"user_id": user_id})
+    input_cursor = db.inputs.find({"user_id": user_id})
 
     concepts = [_serialize_document(document) async for document in concept_cursor]
     edges = [_serialize_document(document) async for document in edge_cursor]
+    inputs = [_serialize_document(document) async for document in input_cursor]
 
-    nodes = [
+    input_nodes = [
+        {
+            "id": source_input["id"],
+            "name": _input_name(str(source_input.get("content", ""))),
+            "description": source_input.get("content", ""),
+            "type": "input",
+            "created_at": source_input.get("created_at"),
+        }
+        for source_input in inputs
+    ]
+    input_ids = {node["id"] for node in input_nodes}
+
+    concept_nodes = [
         {
             "id": concept["id"],
             "name": concept.get("name", ""),
             "description": concept.get("description", ""),
             "source_input_id": concept.get("source_input_id", ""),
+            "type": "concept",
+            "created_at": concept.get("created_at"),
         }
         for concept in concepts
     ]
-    links = [
+    relationship_links = [
         {
             "id": edge["id"],
             "source": edge.get("from_concept", ""),
@@ -189,5 +242,19 @@ async def get_all_nodes_and_edges(db: Any, user_id: str) -> dict[str, list[dict[
         }
         for edge in edges
     ]
+    extraction_links = [
+        {
+            "id": f"extracted-from-{concept['source_input_id']}-{concept['id']}",
+            "source": concept["source_input_id"],
+            "target": concept["id"],
+            "relationship_type": "extracted_from",
+            "description": "",
+        }
+        for concept in concept_nodes
+        if concept.get("source_input_id") in input_ids
+    ]
 
-    return {"nodes": nodes, "links": links}
+    return {
+        "nodes": [*input_nodes, *concept_nodes],
+        "links": [*relationship_links, *extraction_links],
+    }

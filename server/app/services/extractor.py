@@ -1,12 +1,10 @@
-from io import BytesIO
-
 import fitz
 import requests
 from bs4 import BeautifulSoup
 
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    document = fitz.open(stream=BytesIO(file_bytes), filetype="pdf")
+    document = fitz.open(stream=file_bytes, filetype="pdf")
     try:
         return "\n".join(page.get_text("text") for page in document)
     finally:
