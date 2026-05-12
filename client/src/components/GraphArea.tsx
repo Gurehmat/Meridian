@@ -106,10 +106,6 @@ export function GraphArea({
     const safeNodes = Array.isArray(graphData?.nodes) ? graphData.nodes : []
     const safeLinks = Array.isArray(graphData?.links) ? graphData.links : []
 
-    console.log('Contradictions:', contradictions)
-    console.log('Connections:', connections)
-    console.log('Graph links before merge:', safeLinks.length)
-
     const nodeById = new Map(safeNodes.map((node) => [node.id, node]))
     const nodeByName = new Map(
       safeNodes
@@ -196,7 +192,6 @@ export function GraphArea({
     })
 
     const mergedLinks = [...validRelationshipLinks, ...contradictionLinks, ...connectionLinks]
-    console.log('Graph links after merge:', mergedLinks.length)
 
     return {
       graph: {
@@ -431,7 +426,6 @@ export function GraphArea({
           }}
           nodeRelSize={1}
           onNodeClick={(node) => {
-            console.log('Clicked node:', node)
             if (node) setTimeout(() => onNodeSelect(node), 0)
           }}
           onNodeHover={(node) => {
