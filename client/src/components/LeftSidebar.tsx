@@ -74,34 +74,6 @@ function LinkIcon() {
   )
 }
 
-function ArchiveIcon() {
-  return (
-    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
-      <path
-        d="M3 5.5h10v7H3v-7ZM2.5 3.5h11v2h-11v-2ZM6.5 8h3"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.4"
-      />
-    </svg>
-  )
-}
-
-function TrashIcon() {
-  return (
-    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 16 16">
-      <path
-        d="M3 4.5h10M6.5 2.5h3M5 4.5l.5 9h5l.5-9M7 7v4M9 7v4"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.4"
-      />
-    </svg>
-  )
-}
-
 function stripMarkdownEmphasis(text: string) {
   return text.replace(/\*/g, '')
 }
@@ -672,22 +644,6 @@ export function LeftSidebar({
         )}
       </div>
 
-      <nav className="space-y-1 border-t border-[#e7e5e4] p-5">
-        <a
-          className="flex h-9 items-center gap-3 rounded-lg px-2 text-[14px] text-[#57534e] hover:bg-[#f5f5f4]"
-          href="#archive"
-        >
-          <ArchiveIcon />
-          Archive
-        </a>
-        <a
-          className="flex h-9 items-center gap-3 rounded-lg px-2 text-[14px] text-[#57534e] hover:bg-[#f5f5f4]"
-          href="#trash"
-        >
-          <TrashIcon />
-          Trash
-        </a>
-      </nav>
     </aside>
   )
 }
